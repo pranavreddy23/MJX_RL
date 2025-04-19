@@ -10,15 +10,15 @@ import jax.numpy as jp
 import mediapy as media
 from brax.io import html, model
 from IPython.display import HTML, display
-import pickle
+import functools
 
 from environments import get_environment
+from brax.training.agents.ppo import train as ppo
 
 
 def main():
     parser = argparse.ArgumentParser(description="Visualize a trained policy")
-    parser.add_argument("--checkpoint_dir", type=str, required=True, help="Path to checkpoint directory")
-    parser.add_argument("--checkpoint", type=str, default="final_model", help="Specific checkpoint to load")
+    parser.add_argument("--checkpoint", type=str, required=True, help="Path to checkpoint file")
     parser.add_argument("--env", type=str, default="quadruped", help="Environment name")
     parser.add_argument("--scene", type=str, default=None, help="Scene file (for quadruped)")
     parser.add_argument("--steps", type=int, default=500, help="Number of steps to render")
@@ -34,8 +34,7 @@ def main():
     args = parser.parse_args()
     
     # Determine checkpoint path
-    checkpoint_path = os.path.join(args.checkpoint_dir, args.checkpoint)
-    inference_fn_path = os.path.join(args.checkpoint_dir, 'make_inference_fn.pkl')
+    checkpoint_path = args.checkpoint
     
     print(f"Loading policy from: {checkpoint_path}")
     print(f"JAX devices: {jax.devices()}")
@@ -47,34 +46,18 @@ def main():
     
     eval_env = get_environment(args.env, **env_kwargs)
     
-    # Load policy
+    # Load policy using the approach from the example
     print(f"Loading policy from: {checkpoint_path}")
     
-    # Try to load the make_inference_fn function
-    if os.path.exists(inference_fn_path):
-        print(f"Loading make_inference_fn from: {inference_fn_path}")
-        with open(inference_fn_path, 'rb') as f:
-            make_inference_fn = pickle.load(f)
-        
-        # Load parameters
-        params = model.load_params(checkpoint_path)
-        
-        # Create inference function
-        inference_fn = make_inference_fn(params)
-        print("Created inference function using saved make_inference_fn")
-    else:
-        print(f"make_inference_fn not found at {inference_fn_path}")
-        print("Using alternative approach...")
-        
-        # If we don't have the saved function, try to recreate it
-        from brax.training.agents.ppo import networks as ppo_networks
-        
-        # Load parameters
-        params = model.load_params(checkpoint_path)
-        
-        # Create inference function
-        inference_fn = ppo_networks.make_inference_fn(params)
-        print("Created inference function using ppo_networks.make_inference_fn")
+    # Get the make_inference_fn by creating a dummy training function with 0 timesteps
+    make_inference_fn, _, _ = ppo.train(environment=eval_env, num_timesteps=0)
+    
+    # Load the parameters
+    params = model.load_params(checkpoint_path)
+    
+    # Create the inference function
+    inference_fn = make_inference_fn(params)
+    print("Created inference function")
     
     # JIT the environment functions
     jit_reset = jax.jit(eval_env.reset)
