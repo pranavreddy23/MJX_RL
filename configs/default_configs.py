@@ -43,7 +43,7 @@ def get_ppo_config():
     config = config_dict.ConfigDict()
     
     # PPO hyperparameters
-    config.num_timesteps = 100_000_000
+    config.num_timesteps = 20_000_000
     config.num_envs = 2048
     config.num_evals = 100 # How often to evaluate (triggers progress_fn and policy_params_fn)
     # Save a 'step_X' checkpoint approx every N steps. Set high to save infrequently.
