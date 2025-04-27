@@ -200,3 +200,128 @@ def train_ppo(
         summary_writer.close()
 
     return make_inference_fn, params, training_metrics 
+
+def train_humanoid(
+    env: Env,
+    eval_env: Optional[Env] = None,
+    brax_log_dir: str = "./checkpoints/humanoid",
+    restore_checkpoint_path: Optional[str] = None,
+    seed: int = 0,
+    progress_fn: Optional[Callable[[int, Dict[str, Any]], None]] = None,
+    summary_writer: Optional[tensorboard.SummaryWriter] = None,
+) -> Tuple[Callable, Any, Dict[str, Any]]:
+    """
+    Train a humanoid policy using PPO with humanoid-specific hyperparameters,
+    saving checkpoints explicitly after training.
+    """
+    # Convert to absolute path if not already
+    brax_log_dir = os.path.abspath(brax_log_dir)
+    print(f"Humanoid checkpoint directory (absolute): {brax_log_dir}")
+    os.makedirs(brax_log_dir, exist_ok=True)
+
+    # Default progress function (unchanged)
+    if progress_fn is None:
+        times = [datetime.now()]
+        print("Using default progress function for console/TensorBoard logging.")
+        def default_progress(step, metrics):
+            if step > 0 and len(times) == 1: times.append(datetime.now()); print(f"First step time (incl. JIT): {times[-1] - times[0]}")
+            elif step > 0: times.append(datetime.now())
+            if summary_writer:
+                for key, value in metrics.items():
+                    if jp.isscalar(value) and jp.isfinite(value):
+                        try: summary_writer.scalar(key, value, step)
+                        except Exception as e: print(f"Warning: Could not log metric '{key}' to TensorBoard: {e}")
+            current_eval_reward = metrics.get('eval/episode_reward', jp.nan)
+            current_eval_reward_std = metrics.get('eval/episode_reward_std', 0)
+            print(f"\n--- Step: {step}/20000000 ---")
+            print(f"Eval Reward: {current_eval_reward:.3f} +/- {current_eval_reward_std:.3f}")
+            if len(times) > 1: print(f"Total training time: {(times[-1] - times[1]).total_seconds()/60:.2f} minutes")
+        progress_fn = default_progress
+
+    # Network factory (unchanged)
+    make_networks_factory = functools.partial(
+        ppo_networks.make_ppo_networks,
+        policy_hidden_layer_sizes=(256, 256, 256),
+        value_hidden_layer_sizes=(256, 256, 256)
+    )
+
+    # --- Configure PPO Training ---
+    # REMOVE checkpoint_logdir from here to prevent internal saving
+    train_fn_partial = functools.partial(
+        ppo.train,
+        num_timesteps=20_000_000,
+        num_evals=5,
+        reward_scaling=0.1,
+        episode_length=1000,
+        normalize_observations=True,
+        action_repeat=1,
+        unroll_length=10,
+        num_minibatches=24,
+        num_updates_per_batch=8,
+        discounting=0.97,
+        learning_rate=3e-4,
+        entropy_cost=1e-3,
+        num_envs=3072,
+        batch_size=512,
+        network_factory=make_networks_factory,
+        seed=seed,
+        # checkpoint_logdir=brax_log_dir, # <-- REMOVED THIS LINE
+    )
+
+    # Prepare training arguments
+    train_kwargs = {
+        "environment": env,
+        "progress_fn": progress_fn,
+        "eval_env": eval_env,
+    }
+    if restore_checkpoint_path is not None:
+        restore_checkpoint_path = os.path.abspath(restore_checkpoint_path)
+        print(f"Passing restore_checkpoint_path to ppo.train: {restore_checkpoint_path}")
+        train_kwargs["restore_checkpoint_path"] = restore_checkpoint_path
+    else:
+        print("Starting fresh training (no restore_checkpoint_path provided)")
+
+    # Train the policy
+    make_inference_fn, params, training_metrics = train_fn_partial(**train_kwargs)
+
+    # --- Explicitly Save Checkpoint AFTER Training (like train_ppo) ---
+    if brax_log_dir:
+        step = 20_000_000 # Use final step number
+        network_config = ppo_checkpoint.network_config(
+            observation_size=env.observation_size,
+            action_size=env.action_size,
+            normalize_observations=True, # Match training setting
+            network_factory=make_networks_factory
+        )
+        try:
+            # Use ppo_checkpoint.save to create Brax-compatible checkpoint
+            saved_checkpoint_path = ppo_checkpoint.save(
+                path=brax_log_dir, # Pass the base directory
+                step=step,
+                params=params,
+                config=network_config
+            )
+            print(f"Saved final checkpoint to {saved_checkpoint_path}")
+
+            # Create "final_model" symlink
+            final_model_path = os.path.join(brax_log_dir, "final_model")
+            if os.path.exists(final_model_path):
+                if os.path.islink(final_model_path): os.unlink(final_model_path)
+                else: import shutil; shutil.rmtree(final_model_path)
+
+            if os.name == 'nt': # Windows
+                import shutil
+                shutil.copytree(saved_checkpoint_path, final_model_path)
+                print(f"Created final_model copy at {final_model_path}")
+            else: # Unix-like
+                os.symlink(saved_checkpoint_path, final_model_path, target_is_directory=True)
+                print(f"Created final_model symlink pointing to {saved_checkpoint_path}")
+        except Exception as e:
+            print(f"Warning: Failed to save final checkpoint or create final_model reference: {e}")
+            import traceback
+            traceback.print_exc()
+
+    if summary_writer:
+        summary_writer.close()
+
+    return make_inference_fn, params, training_metrics 

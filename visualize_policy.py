@@ -113,8 +113,14 @@ def key_callback(keycode, action, mods):
     if key_char:
         if action == mujoco.glfw.PRESS:
             key_states[key_char] = True
+            # --- Add Debug Print ---
+            print(f"DEBUG Key Callback: PRESSED {key_char}")
+            # --- End Debug Print ---
         elif action == mujoco.glfw.RELEASE:
             key_states[key_char] = False
+            # --- Add Debug Print ---
+            print(f"DEBUG Key Callback: RELEASED {key_char}")
+            # --- End Debug Print ---
 
 def main():
     parser = argparse.ArgumentParser(description="Interactive policy visualization using Brax checkpoints")
@@ -202,19 +208,25 @@ def main():
     jit_reset = jax.jit(env.reset)
     jit_step = jax.jit(env.step)
 
-    # --- Initialize State ---
+    # --- Initialize State and MuJoCo Data ---
     rng = jax.random.PRNGKey(args.seed)
-    state = jit_reset(rng)
-    mjx_model = env.sys.mj_model
-    mjx_data = state.pipeline_state
+    state = jit_reset(rng) # Initial Brax state
+    mj_model = env.sys.mj_model # Get the standard MjModel from the env
+    mj_data = mujoco.MjData(mj_model) # Create a standard MjData
 
-    # --- Setup Viewer ---
+    # --- Setup Viewer with standard MjModel and MjData ---
     try:
-        viewer = mujoco_viewer.MujocoViewer(mjx_model, mjx_data, title="Interactive Policy Viewer", width=1200, height=900)
+        # Initialize viewer with the standard mujoco objects
+        viewer = mujoco_viewer.MujocoViewer(mj_model, mj_data, title="Interactive Policy Viewer", width=1200, height=900)
         viewer.key_callback = key_callback
         viewer.cam.distance = 4.0
         viewer.cam.elevation = -20
         viewer.cam.azimuth = 135
+        # Initial sync of mj_data state (important!)
+        mjx_data_init = state.pipeline_state
+        mj_data.qpos[:] = mjx_data_init.qpos
+        mj_data.qvel[:] = mjx_data_init.qvel
+        mujoco.mj_forward(mj_model, mj_data)
     except Exception as e:
         print(f"Error initializing viewer: {e}")
         raise RuntimeError("Failed to initialize MuJoCo viewer. Make sure mujoco-python-viewer is installed.")
@@ -233,6 +245,12 @@ def main():
             step_start_time = time.time()
             vx_change, vy_change, ang_vel_change = 0.0, 0.0, 0.0
 
+            # --- Add Debug Print for Key States Read in Loop ---
+            pressed_keys = [k for k, v in key_states.items() if v and k not in ['ESC', 'R', 'SPACE']] # Ignore meta keys for this print
+            if pressed_keys:
+                print(f"DEBUG Loop Key States: {pressed_keys}")
+            # --- End Debug Print ---
+
             # --- Process Key States & Update Velocities ---
             if key_states['W']: vx_change += args.vel_increment
             if key_states['S']: vx_change -= args.vel_increment
@@ -250,9 +268,15 @@ def main():
                 print("Resetting environment...")
                 loop_key, reset_key = jax.random.split(loop_key)
                 state = jit_reset(reset_key)
-                mjx_data = state.pipeline_state
+                # Also reset the mj_data to match the new state
+                mjx_data_new = state.pipeline_state
+                mj_data.qpos[:] = mjx_data_new.qpos
+                mj_data.qvel[:] = mjx_data_new.qvel
+                # Add ctrl reset if needed: mj_data.ctrl[:] = 0
+                mujoco.mj_forward(mj_model, mj_data)
                 target_vx, target_vy, target_ang_vel = 0.0, 0.0, 0.0
                 key_states['R'] = False # Reset trigger
+                print("Reset complete.")
 
             if key_states['ESC']:
                 run_loop = False; continue
@@ -272,10 +296,15 @@ def main():
 
             # --- Update Command & Run Policy ---
             current_command = jp.array([target_vx, target_vy, target_ang_vel])
-            if hasattr(state, 'info') and 'command' in state.info:
-                 # state = state.replace(info=state.info | {'command': current_command}) # Python 3.9+ merge
-                 state = state.replace(info={**state.info, 'command': current_command}) # Compatible merge
+            # --- Add Debug Print for Command ---
+            # Only print if command is non-zero or recently changed to zero
+            if jp.any(current_command != 0) or ('last_cmd_zero' in locals() and not last_cmd_zero):
+                 print(f"DEBUG Loop Command: [{target_vx:.2f}, {target_vy:.2f}, {target_ang_vel:.2f}]")
+            last_cmd_zero = jp.all(current_command == 0)
+            # --- End Debug Print ---
 
+            if hasattr(state, 'info') and 'command' in state.info:
+                 state = state.replace(info={**state.info, 'command': current_command})
 
             loop_key, act_key = jax.random.split(loop_key)
             try:
@@ -283,12 +312,27 @@ def main():
             except Exception as e:
                  print(f"\nError during policy inference: {e}"); traceback.print_exc(); run_loop = False; continue
 
-            # --- Step Environment & Render ---
+            # --- Step MJX Environment ---
             state = jit_step(state, action)
-            mjx_data = state.pipeline_state
+            mjx_data_new = state.pipeline_state # Get the new mjx data
 
+            # --- Copy state from MJX to standard MuJoCo Data ---
+            mj_data.qpos[:] = mjx_data_new.qpos
+            mj_data.qvel[:] = mjx_data_new.qvel
+            # Copy control signal (action) - Ensure it has the correct size
+            if mj_data.ctrl.shape == action.shape:
+                 mj_data.ctrl[:] = action
+            else:
+                 # Handle potential shape mismatch if necessary, e.g., padding or clipping
+                 print(f"Warning: Action shape {action.shape} doesn't match mj_data.ctrl shape {mj_data.ctrl.shape}. Skipping ctrl copy.")
+                 # mj_data.ctrl[:] = 0 # Option: Zero out controls if mismatch
+
+            # --- Run MuJoCo forward dynamics on the standard data ---
+            mujoco.mj_forward(mj_model, mj_data)
+
+            # --- Render the updated standard MuJoCo data ---
             try:
-                viewer.data = mjx_data
+                # No need to set viewer.data, it holds the reference to mj_data
                 viewer.render()
             except Exception as e:
                  if "window glfw" in str(e).lower() or "context" in str(e).lower(): print("\nViewer closed or context error.")
@@ -303,7 +347,12 @@ def main():
                 print("\nEpisode done. Resetting...", end=' ')
                 loop_key, reset_key = jax.random.split(loop_key)
                 state = jit_reset(reset_key)
-                mjx_data = state.pipeline_state
+                # Also reset the mj_data to match the new state
+                mjx_data_new = state.pipeline_state
+                mj_data.qpos[:] = mjx_data_new.qpos
+                mj_data.qvel[:] = mjx_data_new.qvel
+                # mj_data.ctrl[:] = 0 # Reset controls
+                mujoco.mj_forward(mj_model, mj_data)
                 target_vx = target_vy = target_ang_vel = 0.0
                 print("Reset complete.")
 
