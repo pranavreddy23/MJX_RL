@@ -1,146 +1,143 @@
 # MJX Reinforcement Learning for Locomotion
 
-<!-- Optional: Add a relevant image or GIF here -->
-<!-- <p align="center">
-  <a href="[Link to video if available]"><img src="[Link to image/gif]" alt="[Description]" style="width:800px"/></a>
-</p> -->
+<p align="center">
+  <!-- Training visualization GIF will go here -->
+  <img src="[Add your GIF link here]" alt="Quadruped locomotion training visualization" width="800px"/>
+</p>
 
 This project focuses on training reinforcement learning (PPO) agents for simulated quadruped and humanoid locomotion tasks using the [Brax](https://github.com/google/brax) library, leveraging the [MJX](https://mujoco.readthedocs.io/en/latest/mjx.html) physics engine within MuJoCo.
 
-<!-- Optional: Add links to relevant papers if this code is associated with publications -->
-<!--
-Code related to the papers:
-- [Paper Title 1](Link)
-- [Paper Title 2](Link)
--->
+## Features
+
+- JAX-accelerated reinforcement learning for physics-based character control
+- Support for quadruped and humanoid locomotion tasks
+- Checkpoint management for easy experiment tracking
+- Video and HTML visualization generation
+- Domain randomization utilities
+
+<p align="center">
+  <!-- Humanoid training visualization will go here -->
+  <img src="[Add your humanoid GIF link here]" alt="Humanoid locomotion training visualization" width="800px"/>
+</p>
 
 ## Project Structure
 
-A rough outline for the repository:
-├── checkpoints/ # Default location for saved model checkpoints
-│ ├── quadruped/ # Checkpoints for the quadruped environment
-│ └── humanoid/ # Checkpoints for the humanoid environment
-├── configs/ # Configuration files (e.g., PPO hyperparameters)
-│ └── default_configs.py
-├── environments/ # Environment definitions (observation/action spaces, rewards, reset, step)
-│ ├── init.py
-│ ├── quadruped.py
-│ └── humanoid.py
-├── humanoid/ # Humanoid MJCF model files (XMLs/meshes/textures)
-│ └── humanoid.xml # Example model file
-├── policies/ # Policy training implementations (PPO logic, network creation)
-│ ├── init.py
-│ └── ppo.py
-├── utils/ # Utility scripts (e.g., rendering, domain randomization)
-│ ├── init.py
-│ ├── domain_rand.py
-│ └── rendering.py
-├── main.py # Main script for training and
-
+```
+├── checkpoints/                   # Default location for saved model checkpoints
+│   ├── quadruped/                 # Checkpoints for the quadruped environment
+│   └── humanoid/                  # Checkpoints for the humanoid environment
+├── configs/                       # Configuration files (e.g., PPO hyperparameters)
+│   └── default_configs.py
+├── environments/                  # Environment definitions
+│   ├── __init__.py
+│   ├── quadruped.py               # Quadruped environment with rewards, obs, etc.
+│   └── humanoid.py                # Humanoid environment with rewards, obs, etc.
+├── humanoid/                      # Humanoid MJCF model files
+│   └── humanoid.xml               # Example model file
+├── policies/                      # Policy training implementations
+│   ├── __init__.py
+│   └── ppo.py                     # PPO algorithm implementation
+├── utils/                         # Utility scripts
+│   ├── __init__.py
+│   ├── domain_rand.py             # Domain randomization utilities
+│   └── rendering.py               # Visualization tools
+├── main.py                        # Main script for training and evaluation
+├── README.md                      # This file
+└── requirements.txt               # Dependencies
+```
 
 ## Setup / Requirements
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repo-url>
-    cd <your-repo-directory>
-    ```
-2.  **Virtual Environment (Recommended):**
-    ```bash
-    python -m venv mjx_env
-    source mjx_env/bin/activate  # On Linux/macOS
-    # .\mjx_env\Scripts\activate  # On Windows
-    ```
-3.  **Install Dependencies:**
-    Ensure you have a compatible version of MuJoCo installed (>3.1.0 recommended for MJX). Install the necessary Python packages using pip. Key dependencies include:
-    *   `jax` (consider GPU version, e.g., `jax[cuda12_pip]`)
-    *   `brax`
-    *   `mujoco`
-    *   `flax`
-    *   `orbax-checkpoint`
-    *   `mediapy`
-    *   `ml_collections`
-    *   `etils[epath]`
+1. **Clone the repository:**
+   ```bash
+   git clone <your-repo-url>
+   cd <your-repo-directory>
+   ```
 
-    Example installation command:
-    ```bash
-    pip install "jax[cuda12_pip]" brax mujoco flax orbax-checkpoint mediapy ml_collections "etils[epath]"
-    ```
-    *(Adjust JAX version based on your CUDA setup if applicable. Verify Brax compatibility.)*
+2. **Virtual Environment (Recommended):**
+   ```bash
+   python -m venv mjx_env
+   source mjx_env/bin/activate  # On Linux/macOS
+   # .\mjx_env\Scripts\activate  # On Windows
+   ```
+
+3. **Install Dependencies:**
+   Ensure you have a compatible version of MuJoCo installed (>3.1.0 recommended for MJX). Install the necessary Python packages:
+
+   ```bash
+   pip install "jax[cuda12_pip]" brax mujoco flax orbax-checkpoint mediapy ml_collections "etils[epath]"
+   ```
+   
+   *(Adjust JAX version based on your CUDA setup if applicable)*
+
+<p align="center">
+  <!-- Training progress visualization will go here -->
+  <img src="[Add training metrics visualization link here]" alt="Training progress visualization" width="800px"/>
+</p>
 
 ## Usage
 
 The main entry point is `main.py`.
 
-#### **To Train:**
+### Training
 
-*   **Train Quadruped (default):**
-    ```bash
-    python main.py --env quadruped
-    ```
-*   **Train Humanoid:**
-    ```bash
-    python main.py --env humanoid
-    ```
-*   **Specify Checkpoint Directory:**
-    ```bash
-    python main.py --env quadruped --brax_checkpoint_dir /path/to/my/checkpoints
-    ```
-*   **Resume Training:** Training automatically resumes from the latest valid checkpoint (or `final_model`) found in the environment's subdirectory within `--brax_checkpoint_dir` (e.g., `./checkpoints/quadruped/`).
-*   **Resume from Specific Checkpoint:**
-    ```bash
-    python main.py --env quadruped --load_checkpoint ./checkpoints/quadruped/000010000000
-    ```
+- **Train Quadruped (default):**
+  ```bash
+  python main.py --env quadruped
+  ```
 
-#### **To Evaluate (Play Policy):**
+- **Train Humanoid:**
+  ```bash
+  python main.py --env humanoid
+  ```
 
-*   **Evaluate Latest Quadruped Policy:**
-    ```bash
-    python main.py --env quadruped --eval_only
-    ```
-*   **Evaluate Specific Humanoid Checkpoint (using final_model link):**
-    ```bash
-    python main.py --env humanoid --eval_only --load_checkpoint ./checkpoints/humanoid/final_model
-    ```
-*   **Evaluate Specific Humanoid Checkpoint (using step number):**
-    ```bash
-    python main.py --env humanoid --eval_only --load_checkpoint ./checkpoints/humanoid/000020000000
-    ```
+- **Specify Checkpoint Directory:**
+  ```bash
+  python main.py --env quadruped --brax_checkpoint_dir /path/to/my/checkpoints
+  ```
 
-#### **Rendering:**
+- **Resume Training:**
+  Training automatically resumes from the latest checkpoint in the environment's subdirectory.
 
-Rendering is enabled by default after training or evaluation (`--render`).
-*   A video (`policy_render.mp4`) will be saved.
-*   An HTML visualization (`policy_visualization.html`) will be saved.
-Both files are placed in the environment's checkpoint directory (e.g., `./checkpoints/quadruped/`).
+- **Resume from Specific Checkpoint:**
+  ```bash
+  python main.py --env quadruped --load_checkpoint ./checkpoints/quadruped/000010000000
+  ```
 
-#### **Command-line Arguments:**
+### Evaluation
+
+- **Evaluate Latest Quadruped Policy:**
+  ```bash
+  python main.py --env quadruped --eval_only
+  ```
+
+- **Evaluate Specific Checkpoint:**
+  ```bash
+  python main.py --env humanoid --eval_only --load_checkpoint ./checkpoints/humanoid/final_model
+  ```
+
+
+### Rendering
+
+Rendering is enabled by default after training or evaluation (`--render`):
+- A video (`policy_render.mp4`) will be saved
+- An HTML visualization (`policy_visualization.html`) will be generated
+
+Both files are placed in the environment's checkpoint directory.
+
+### Command-line Arguments
 
 Use `python main.py --help` to see all available options.
 
 ## Checkpoints
 
-*   Checkpoints are saved within the directory specified by `--brax_checkpoint_dir`, organized into subdirectories by environment name (e.g., `./checkpoints/quadruped/`).
-*   After successful training, a symlink named `final_model` is created within the environment's checkpoint directory, pointing to the latest saved checkpoint step (e.g., `./checkpoints/quadruped/final_model` -> `./checkpoints/quadruped/000020000000`). This `final_model` path is prioritized when loading checkpoints automatically.
+- Checkpoints are saved in subdirectories organized by environment name
+- A symlink named `final_model` points to the latest successful checkpoint
+- Example path: `./checkpoints/quadruped/final_model` → `./checkpoints/quadruped/000020000000`
 
-<!-- Optional: Add Citation section if applicable -->
-<!--
-## Citation
-If you find this work useful in your own research, please consider citing:
-```bibtex
-@misc{your_project_2024,
-  author = {Your Name(s)},
-  title = {MJX Reinforcement Learning for Locomotion},
-  year = {2024},
-  publisher = {GitHub},
-  journal = {GitHub repository},
-  howpublished = {\url{<your-repo-url>}},
-}
-```
--->
 
-<!-- Optional: Add Credits section if applicable -->
-<!--
-### Credits
-This code structure may be inspired by other repositories like X, Y, Z.
--->
+
+## Acknowledgments
+
+- [Brax team](https://github.com/google/brax) for the physics-based RL framework
+- [MuJoCo team](https://mujoco.org/) for the MJX physics engine
