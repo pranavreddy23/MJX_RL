@@ -10,6 +10,7 @@ import jax
 import jax.numpy as jp
 from flax.metrics import tensorboard
 from datetime import datetime
+import shutil
 
 from brax.training.agents.ppo import train as ppo
 from brax.training.agents.ppo import networks as ppo_networks
@@ -23,86 +24,57 @@ def train_ppo(
     eval_env: Optional[Env] = None,
     config: Optional[ConfigDict] = None,
     seed: int = 0,
-    brax_log_dir: str = "/tmp/mjx_brax_checkpoints",
+    brax_log_dir: str = "./checkpoints/quadruped", # Default to quadruped subdir
     restore_checkpoint_path: Optional[str] = None,
     use_domain_randomization: bool = False,
     progress_fn: Optional[Callable[[int, Dict[str, Any]], None]] = None,
     summary_writer: Optional[tensorboard.SummaryWriter] = None,
 ) -> Tuple[Callable, Any, Dict[str, Any]]:
     """
-    Train a policy using PPO, relying on Brax internal checkpointing.
-
-    Args:
-        env: Environment to train on
-        eval_env: Environment to evaluate on (if None, uses env)
-        config: Configuration for training (if None, uses default)
-        seed: Random seed
-        brax_log_dir: Base directory where Brax will save checkpoints (inside a subdir) and potentially other logs.
-        restore_checkpoint_path: Specific Brax checkpoint directory (e.g., .../checkpoints/000...) to restore from.
-        use_domain_randomization: Whether to use domain randomization
-        progress_fn: Function to call with training progress
-        summary_writer: TensorBoard SummaryWriter for logging
-
-    Returns:
-        Tuple of (make_inference_fn, final_params, training_metrics)
+    Train a policy using PPO, relying on Brax internal checkpointing,
+    saving checkpoints explicitly after training.
     """
     # Load default config if none provided
     if config is None:
         from configs.default_configs import get_ppo_config
         config = get_ppo_config()
 
-    # Ensure Brax log directory exists
+    # Ensure Brax log directory exists and use absolute path
+    brax_log_dir = os.path.abspath(brax_log_dir)
     os.makedirs(brax_log_dir, exist_ok=True)
-    print(f"Brax checkpoint log directory: {brax_log_dir}")
+    print(f"Checkpoint log directory (absolute): {brax_log_dir}")
 
-    # Keep default progress function for printing/TensorBoard, but remove saving logic
+    # Default progress function (unchanged)
     if progress_fn is None:
-        times = [datetime.now()] # Keep timing info
+        times = [datetime.now()]
         print("Using default progress function for console/TensorBoard logging.")
         def default_progress(step, metrics):
-            # Log timing only after first step completes (JIT compilation)
-            if step > 0 and len(times) == 1:
-                 times.append(datetime.now())
-                 print(f"First step time (incl. JIT): {times[-1] - times[0]}")
-            elif step > 0:
-                 times.append(datetime.now())
-
-
+            if step > 0 and len(times) == 1: times.append(datetime.now()); print(f"First step time (incl. JIT): {times[-1] - times[0]}")
+            elif step > 0: times.append(datetime.now())
             if summary_writer:
                 for key, value in metrics.items():
-                    try:
-                        # Ensure value is scalar and finite for TensorBoard
-                        if jp.isscalar(value) and jp.isfinite(value):
-                             summary_writer.scalar(key, value, step)
-                    except Exception as e:
-                        print(f"Warning: Could not log metric '{key}' to TensorBoard: {e}")
-
-            # Print key metrics to console
+                    if jp.isscalar(value) and jp.isfinite(value):
+                        try: summary_writer.scalar(key, value, step)
+                        except Exception as e: print(f"Warning: Could not log metric '{key}' to TensorBoard: {e}")
             current_eval_reward = metrics.get('eval/episode_reward', jp.nan)
             current_eval_reward_std = metrics.get('eval/episode_reward_std', 0)
             print(f"\n--- Step: {step}/{config.num_timesteps} ---")
             print(f"Eval Reward: {current_eval_reward:.3f} +/- {current_eval_reward_std:.3f}")
-            if len(times) > 1:
-                 print(f"Total training time: {(times[-1] - times[1]).total_seconds()/60:.2f} minutes")
-            # Optionally print losses if needed:
-            # actor_loss = metrics.get('loss/actor', metrics.get('ppo/actor_loss', jp.nan))
-            # critic_loss = metrics.get('loss/critic', metrics.get('ppo/value_loss', jp.nan))
-            # print(f"Losses (Actor/Critic): {actor_loss:.4f} / {critic_loss:.4f}")
-
-
+            if len(times) > 1: print(f"Total training time: {(times[-1] - times[1]).total_seconds()/60:.2f} minutes")
         progress_fn = default_progress
 
-    # Configure network factory
+
+    # Network factory (unchanged)
     make_networks_factory = functools.partial(
         ppo_networks.make_ppo_networks,
         policy_hidden_layer_sizes=config.network.policy_hidden_layer_sizes,
         value_hidden_layer_sizes=config.network.value_hidden_layer_sizes
     )
 
-    # Configure training function
+    # Domain randomization import (unchanged)
     from utils.domain_rand import domain_randomize
 
-    # Create the partial function WITHOUT restore_checkpoint_path initially
+    # Configure PPO training (no internal checkpointing)
     train_fn_partial = functools.partial(
         ppo.train,
         num_timesteps=config.num_timesteps,
@@ -127,79 +99,86 @@ def train_ppo(
     if use_domain_randomization:
         train_fn_partial = functools.partial(train_fn_partial, randomization_fn=domain_randomize)
 
-    # Prepare the final keyword arguments for the train call
+    # Prepare training arguments
     train_kwargs = {
         "environment": env,
         "progress_fn": progress_fn,
         "eval_env": eval_env,
     }
-
-    # Conditionally add the restore path to the arguments passed to ppo.train
     if restore_checkpoint_path is not None:
+        restore_checkpoint_path = os.path.abspath(restore_checkpoint_path)
         print(f"Passing restore_checkpoint_path to ppo.train: {restore_checkpoint_path}")
         train_kwargs["restore_checkpoint_path"] = restore_checkpoint_path
     else:
         print("Starting fresh training (no restore_checkpoint_path provided)")
 
-    # Train the policy using the potentially modified kwargs
-    # Note: We are calling the ORIGINAL ppo.train via the partial function,
-    # but only adding restore_checkpoint_path to the call if needed.
-    # The 'initial_params' logic is removed.
+    # Train the policy
     make_inference_fn, params, training_metrics = train_fn_partial(**train_kwargs)
 
-    # Save the checkpoint after training
+    # --- Simplified Explicit Save Checkpoint AFTER Training ---
     if brax_log_dir:
         step = config.num_timesteps
-
-        # Save network config and parameters - PASS BASE DIR to save()
         network_config = ppo_checkpoint.network_config(
             observation_size=env.observation_size,
             action_size=env.action_size,
             normalize_observations=config.normalize_observations,
             network_factory=make_networks_factory
         )
+        expected_checkpoint_path = os.path.join(brax_log_dir, f'{step:012d}')
+
         try:
-            # Let save handle creating the step directory inside brax_log_dir
-            # Capture the actual path where the checkpoint was saved
-            saved_checkpoint_path = ppo_checkpoint.save(
-                path=brax_log_dir, # Pass the base directory
+            print(f"\n--- Saving final checkpoint for step {step} ---")
+            print(f"Target directory: {expected_checkpoint_path}")
+            # Call save, ignore its None return value
+            ppo_checkpoint.save(
+                path=brax_log_dir,
                 step=step,
                 params=params,
                 config=network_config
             )
-            print(f"Saved checkpoint to {saved_checkpoint_path}") # Use the returned path
+            print(f"ppo_checkpoint.save call completed.")
 
-            # Create a "final_model" symlink to the actual saved checkpoint directory
+            # --- Simplified Symlink Creation ---
             final_model_path = os.path.join(brax_log_dir, "final_model")
-            # Remove existing symlink/dir first (important!)
-            if os.path.exists(final_model_path):
+            print(f"Attempting to create/update 'final_model' symlink -> {expected_checkpoint_path}")
+
+            # Force remove existing final_model (link, file, or dir)
+            if os.path.lexists(final_model_path): # Use lexists to detect broken links too
                 if os.path.islink(final_model_path):
+                    print(f"Removing existing symlink: {final_model_path}")
                     os.unlink(final_model_path)
-                else: # If it's somehow a directory, remove it
-                    import shutil
-                    shutil.rmtree(final_model_path)
+                elif os.path.isdir(final_model_path):
+                     print(f"Removing existing directory: {final_model_path}")
+                     shutil.rmtree(final_model_path)
+                else:
+                     print(f"Removing existing file: {final_model_path}")
+                     os.remove(final_model_path)
 
-            # Create symlink on Unix or directory copy on Windows
-            # Point to the actual saved path returned by save()
-            if os.name == 'nt':  # Windows
-                import shutil
-                shutil.copytree(saved_checkpoint_path, final_model_path)
-                print(f"Created final_model copy at {final_model_path}")
-            else:  # Unix-like
-                # Use the correct target path returned by save()
-                os.symlink(saved_checkpoint_path, final_model_path, target_is_directory=True)
-                print(f"Created final_model symlink pointing to {saved_checkpoint_path}")
+            # Create the new symlink (only on non-Windows)
+            if os.name != 'nt':
+                 # Verify source directory exists before creating link
+                 if os.path.isdir(expected_checkpoint_path):
+                      os.symlink(expected_checkpoint_path, final_model_path, target_is_directory=True)
+                      print(f"Successfully created 'final_model' symlink.")
+                 else:
+                      print(f"!!! Source checkpoint directory NOT FOUND: {expected_checkpoint_path}. Cannot create symlink.")
+            else: # Basic copy for Windows
+                 if os.path.isdir(expected_checkpoint_path):
+                      shutil.copytree(expected_checkpoint_path, final_model_path)
+                      print(f"Successfully created 'final_model' copy (Windows).")
+                 else:
+                      print(f"!!! Source checkpoint directory NOT FOUND: {expected_checkpoint_path}. Cannot create copy.")
+            # --- End Simplified Symlink Creation ---
+
         except Exception as e:
-            print(f"Warning: Failed to save checkpoint or create final_model reference: {e}")
-            # Add traceback for more details if needed
-            # import traceback
-            # traceback.print_exc()
-
+            print(f"!!! ERROR during final checkpoint saving or symlink creation: {e}")
+            import traceback
+            traceback.print_exc()
 
     if summary_writer:
         summary_writer.close()
 
-    return make_inference_fn, params, training_metrics 
+    return make_inference_fn, params, training_metrics
 
 def train_humanoid(
     env: Env,
@@ -212,7 +191,7 @@ def train_humanoid(
 ) -> Tuple[Callable, Any, Dict[str, Any]]:
     """
     Train a humanoid policy using PPO with humanoid-specific hyperparameters,
-    saving checkpoints explicitly after training.
+    saving checkpoints explicitly after training, mirroring train_ppo structure.
     """
     # Convert to absolute path if not already
     brax_log_dir = os.path.abspath(brax_log_dir)
@@ -245,8 +224,7 @@ def train_humanoid(
         value_hidden_layer_sizes=(256, 256, 256)
     )
 
-    # --- Configure PPO Training ---
-    # REMOVE checkpoint_logdir from here to prevent internal saving
+    # --- Configure PPO Training (No internal checkpointing) ---
     train_fn_partial = functools.partial(
         ppo.train,
         num_timesteps=20_000_000,
@@ -265,10 +243,9 @@ def train_humanoid(
         batch_size=512,
         network_factory=make_networks_factory,
         seed=seed,
-        # checkpoint_logdir=brax_log_dir, # <-- REMOVED THIS LINE
     )
 
-    # Prepare training arguments
+    # Prepare training arguments (unchanged)
     train_kwargs = {
         "environment": env,
         "progress_fn": progress_fn,
@@ -281,43 +258,66 @@ def train_humanoid(
     else:
         print("Starting fresh training (no restore_checkpoint_path provided)")
 
-    # Train the policy
+    # Train the policy (unchanged)
     make_inference_fn, params, training_metrics = train_fn_partial(**train_kwargs)
 
-    # --- Explicitly Save Checkpoint AFTER Training (like train_ppo) ---
+    # --- Simplified Explicit Save Checkpoint AFTER Training ---
     if brax_log_dir:
-        step = 20_000_000 # Use final step number
+        step = 20_000_000
         network_config = ppo_checkpoint.network_config(
             observation_size=env.observation_size,
             action_size=env.action_size,
-            normalize_observations=True, # Match training setting
+            normalize_observations=True,
             network_factory=make_networks_factory
         )
+        expected_checkpoint_path = os.path.join(brax_log_dir, f'{step:012d}')
+
         try:
-            # Use ppo_checkpoint.save to create Brax-compatible checkpoint
-            saved_checkpoint_path = ppo_checkpoint.save(
-                path=brax_log_dir, # Pass the base directory
+            print(f"\n--- Saving final checkpoint for step {step} ---")
+            print(f"Target directory: {expected_checkpoint_path}")
+            # Call save, ignore its None return value
+            ppo_checkpoint.save(
+                path=brax_log_dir,
                 step=step,
                 params=params,
                 config=network_config
             )
-            print(f"Saved final checkpoint to {saved_checkpoint_path}")
+            print(f"ppo_checkpoint.save call completed.")
 
-            # Create "final_model" symlink
+            # --- Simplified Symlink Creation ---
             final_model_path = os.path.join(brax_log_dir, "final_model")
-            if os.path.exists(final_model_path):
-                if os.path.islink(final_model_path): os.unlink(final_model_path)
-                else: import shutil; shutil.rmtree(final_model_path)
+            print(f"Attempting to create/update 'final_model' symlink -> {expected_checkpoint_path}")
 
-            if os.name == 'nt': # Windows
-                import shutil
-                shutil.copytree(saved_checkpoint_path, final_model_path)
-                print(f"Created final_model copy at {final_model_path}")
-            else: # Unix-like
-                os.symlink(saved_checkpoint_path, final_model_path, target_is_directory=True)
-                print(f"Created final_model symlink pointing to {saved_checkpoint_path}")
+            # Force remove existing final_model (link, file, or dir)
+            if os.path.lexists(final_model_path): # Use lexists to detect broken links too
+                if os.path.islink(final_model_path):
+                    print(f"Removing existing symlink: {final_model_path}")
+                    os.unlink(final_model_path)
+                elif os.path.isdir(final_model_path):
+                     print(f"Removing existing directory: {final_model_path}")
+                     shutil.rmtree(final_model_path)
+                else:
+                     print(f"Removing existing file: {final_model_path}")
+                     os.remove(final_model_path)
+
+            # Create the new symlink (only on non-Windows)
+            if os.name != 'nt':
+                 # Verify source directory exists before creating link
+                 if os.path.isdir(expected_checkpoint_path):
+                      os.symlink(expected_checkpoint_path, final_model_path, target_is_directory=True)
+                      print(f"Successfully created 'final_model' symlink.")
+                 else:
+                      print(f"!!! Source checkpoint directory NOT FOUND: {expected_checkpoint_path}. Cannot create symlink.")
+            else: # Basic copy for Windows
+                 if os.path.isdir(expected_checkpoint_path):
+                      shutil.copytree(expected_checkpoint_path, final_model_path)
+                      print(f"Successfully created 'final_model' copy (Windows).")
+                 else:
+                      print(f"!!! Source checkpoint directory NOT FOUND: {expected_checkpoint_path}. Cannot create copy.")
+            # --- End Simplified Symlink Creation ---
+
         except Exception as e:
-            print(f"Warning: Failed to save final checkpoint or create final_model reference: {e}")
+            print(f"!!! ERROR during final checkpoint saving or symlink creation: {e}")
             import traceback
             traceback.print_exc()
 
