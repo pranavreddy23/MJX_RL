@@ -1,7 +1,6 @@
 # MJX Reinforcement Learning for Locomotion
 
 <p align="center">
-  <!-- Training visualization GIF will go here -->
   <img src="gif/quadruped.gif" alt="Quadruped locomotion training visualization" width="1920px" />
 </p>
 
@@ -16,7 +15,6 @@ This project focuses on training reinforcement learning (PPO) agents for simulat
 - Domain randomization utilities
 
 <p align="center">
-  <!-- Humanoid training visualization will go here -->
   <img src="gif/humanoid.gif" alt="Humanoid locomotion training visualization" width="1920px"/>
 </p>
 
@@ -50,8 +48,8 @@ This project focuses on training reinforcement learning (PPO) agents for simulat
 
 1. **Clone the repository:**
    ```bash
-   git clone <your-repo-url>
-   cd <your-repo-directory>
+   git clone https://github.com/pranavreddy23/MJX_RL.git
+   cd MJX_RL
    ```
 
 2. **Virtual Environment (Recommended):**
@@ -76,13 +74,12 @@ This project focuses on training reinforcement learning (PPO) agents for simulat
   <img src="gif/humanoid.png" alt="Humanoid Training Visualization" width="800px"/>
 </p>
 
----
-
 ### 🐾 Quadruped Agent Training
 
 <p align="center">
   <img src="gif/quadruped.png" alt="Quadruped Training Visualization" width="800px"/>
 </p>
+
 ## Usage
 
 The main entry point is `main.py`.
@@ -124,7 +121,6 @@ The main entry point is `main.py`.
   python main.py --env humanoid --eval_only --load_checkpoint ./checkpoints/humanoid/final_model
   ```
 
-
 ### Rendering
 
 Rendering is enabled by default after training or evaluation (`--render`):
@@ -142,8 +138,6 @@ Use `python main.py --help` to see all available options.
 - Checkpoints are saved in subdirectories organized by environment name
 - A symlink named `final_model` points to the latest successful checkpoint
 - Example path: `./checkpoints/quadruped/final_model` → `./checkpoints/quadruped/000020000000`
-
-
 
 ## Acknowledgments
 
