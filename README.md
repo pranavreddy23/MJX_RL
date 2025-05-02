@@ -2,7 +2,7 @@
 
 <p align="center">
   <!-- Training visualization GIF will go here -->
-  <img src="[Add your GIF link here]" alt="Quadruped locomotion training visualization" width="800px"/>
+  <img src="gif/quadruped.gif" alt="Quadruped locomotion training visualization" width="800px"/>
 </p>
 
 This project focuses on training reinforcement learning (PPO) agents for simulated quadruped and humanoid locomotion tasks using the [Brax](https://github.com/google/brax) library, leveraging the [MJX](https://mujoco.readthedocs.io/en/latest/mjx.html) physics engine within MuJoCo.
