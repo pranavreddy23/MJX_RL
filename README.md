@@ -17,7 +17,7 @@ This project focuses on training reinforcement learning (PPO) agents for simulat
 
 <p align="center">
   <!-- Humanoid training visualization will go here -->
-  <img src="gif/humanoid" alt="Humanoid locomotion training visualization" width="1920px"/>
+  <img src="gif/humanoid.gif" alt="Humanoid locomotion training visualization" width="1920px"/>
 </p>
 
 ## Project Structure
