@@ -70,15 +70,19 @@ This project focuses on training reinforcement learning (PPO) agents for simulat
    
    *(Adjust JAX version based on your CUDA setup if applicable)*
 
+### 🧍‍♂️ Humanoid Agent Training
+
 <p align="center">
-  <!-- Training progress visualization will go here -->
-  <img src="gif/humanoid.png" alt="Training progress visualization" width="800px"/>
-</p>
-<p align="center">
-  <!-- Training progress visualization will go here -->
-  <img src="gif/quadruped.png" alt="Training progress visualization" width="800px"/>
+  <img src="gif/humanoid.png" alt="Humanoid Training Visualization" width="800px"/>
 </p>
 
+---
+
+### 🐾 Quadruped Agent Training
+
+<p align="center">
+  <img src="gif/quadruped.png" alt="Quadruped Training Visualization" width="800px"/>
+</p>
 ## Usage
 
 The main entry point is `main.py`.
