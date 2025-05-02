@@ -72,7 +72,11 @@ This project focuses on training reinforcement learning (PPO) agents for simulat
 
 <p align="center">
   <!-- Training progress visualization will go here -->
-  <img src="[Add training metrics visualization link here]" alt="Training progress visualization" width="800px"/>
+  <img src="gif/humanoid.png" alt="Training progress visualization" width="800px"/>
+</p>
+<p align="center">
+  <!-- Training progress visualization will go here -->
+  <img src="gif/quadruped.png" alt="Training progress visualization" width="800px"/>
 </p>
 
 ## Usage
