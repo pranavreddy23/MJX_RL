@@ -1,2 +1,6 @@
 mujoco_menagerie/
-		
+humanoid/
+*.zip
+checkpoints/		
+checkpoints/
+mjx_brax_checkpoints/
